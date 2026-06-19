@@ -14,19 +14,58 @@ from nonebot import on_type, on_message
 from nonebot.adapters.onebot.v11 import PokeNotifyEvent, PrivateMessageEvent
 
 from . import server_status, status_config, status_permission
+from . import render_template
+
+
+async def _group_poke(event: PokeNotifyEvent) -> bool:
+    """Only match pokes in group chats (not private pokes)."""
+    return event.group_id is not None
+
 
 if status_config.server_status_enabled:
     group_poke = on_type(
         (PokeNotifyEvent,),
-        rule=to_me(),
+        rule=to_me() & _group_poke,
         permission=status_permission,
         priority=10,
         block=True,
         handlers=[server_status],
     )
-    """Poke notify matcher.
+    """Poke notify matcher for group chats.
 
     双击头像拍一拍
+    """
+
+
+async def _private_poke(event: PokeNotifyEvent) -> bool:
+    """Match pokes in private chats directed at the bot."""
+    return event.group_id is None and event.target_id == event.self_id
+
+
+async def private_server_status(bot, event: PokeNotifyEvent):
+    """Server status handler for private poke events.
+
+    PokeNotifyEvent lacks message context, so matcher.send() fails.
+    We call send_msg explicitly with message_type=private.
+    """
+    from nonebot.adapters.onebot.v11 import Message
+
+    message = Message(await render_template())
+    await bot.send_msg(message_type="private", user_id=event.user_id, message=message)
+
+
+if status_config.server_status_enabled:
+    private_poke = on_type(
+        (PokeNotifyEvent,),
+        rule=_private_poke,
+        permission=status_permission,
+        priority=10,
+        block=True,
+        handlers=[private_server_status],
+    )
+    """Poke notify matcher for private chats.
+
+    私聊戳一戳
     """
 
 
